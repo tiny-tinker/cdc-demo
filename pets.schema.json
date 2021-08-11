@@ -1,0 +1,38 @@
+  [
+    {
+      "name": "name",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "The name of the event"
+    },
+    {
+      "name": "owner",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Who owns this pet"
+    },
+    {
+      "name": "species",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Cat, bird, dog, other?"
+    },
+    {
+      "name": "sex",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Boy or girl pet?"
+    },
+    {
+      "name": "birth",
+      "type": "DATE",
+      "mode": "NULLABLE",
+      "description": "The date the animal was born :D"
+    },
+    {
+      "name": "death",
+      "type": "DATE",
+      "mode": "NULLABLE",
+      "description": "The date the animal was passed away :("
+    }
+  ]

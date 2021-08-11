@@ -1,0 +1,26 @@
+  [
+    {
+      "name": "name",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "The name of the event"
+    },
+    {
+      "name": "date",
+      "type": "DATE",
+      "mode": "NULLABLE",
+      "description": "The date the event occurred on"
+    },
+    {
+      "name": "type",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Why?"
+    },
+    {
+      "name": "remark",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Vet remarks"
+    }
+  ]

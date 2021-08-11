@@ -1,0 +1,8 @@
+Fluffy	Harold	cat	f	2003-02-04	2015-01-09
+Claws	Gwen	cat	m	2004-03-17	2013-04-04
+Buffy	Harold	dog	f	2009-05-13	2020-07-11
+Fang	Benny	dog	m	2018-08-27	\N
+Bowser	Diane	dog	m	2019-08-31	\N
+Chirpy	Gwen	bird	f	2020-09-11	\N
+Whistler	Gwen	bird	\N	2017-12-09	\N
+Slim	Benny	snake	m	2016-04-29	\N
