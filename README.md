@@ -5,23 +5,29 @@ Using the [menagerie example database](https://dev.mysql.com/doc/index-other.htm
 
 Followed the MySQL configuration for Datastream [here](https://cloud.google.com/datastream/docs/configure-your-source-mysql-database#cloudsqlformysql)
 
+**Note** Right now, the dataflow template fails and I'm unsure how to get it working. If you fix it please fork or post an issue. 
+
 Table of Contents
 =================
 
 * [Change Data Capture](#change-data-capture)
+* [Table of Contents](#table-of-contents)
 * [Infra Set Up via Terraform](#infra-set-up-via-terraform)
   * [Add Some Data](#add-some-data)
+* [Choose Your Own Adventure](#choose-your-own-adventure)
 * [Datastream](#datastream)
   * [Create Stream](#create-stream)
+  * [Add Dataflow Job](#add-dataflow-job)
 * [Changing Data](#changing-data)
+* [Striim](#striim)
+* [Stitch](#stitch)
+* [Fivetran](#fivetran)
 * [Random Bits](#random-bits)
   * [Cleanup](#cleanup)
   * [SQL Auth Proxy](#sql-auth-proxy)
   * [Some notes on SSL for Cloud SQL](#some-notes-on-ssl-for-cloud-sql)
 
 Created by [gh-md-toc](https://github.com/ekalinin/github-markdown-toc.go)
-
-
 
 # Infra Set Up via Terraform
 
@@ -48,93 +54,144 @@ export TARGET_BKT=$(terraform output -raw target_bucket)
 
 export REGION=$(terraform output -raw region)
 
-export CONNECTION_NAME=$PROJECT_ID:$REGION:$INSTANCE
-
+echo "Bucket: \n$TARGET_BKT"
 ```
 
 ## Add Some Data
-Open a new shell (might need to copy over the `$CONNECTION_NAME` value) and dive into the directory with the proxy:
-```bash
-./cloud_sql_proxy -instances=$CONNECTION_NAME=tcp:3306
-```
 
-Now connect to the sql instance. Note that the password is in the `$ANIMAL_PASSWD` value
-```bash
-mysql -u animal -p --host 127.0.0.1 --port 3306 --local-infile=1
-```
-After the files below have been loaded, this command can be used to connect:
+First, connect to the SQL instance and use the value in `$ANIMAL_PASSWD`
 
 ```bash
+echo $ANIMAL_PASSWD
 gcloud sql connect $INSTANCE -u animal
 ```
 
-Now set up the DB and import records
+Then, create some tables and add some data:
+
 ```sql
 
 USE menagerie;
-SOURCE ./menagerie-db/cr_pet_tbl.sql
-LOAD DATA LOCAL INFILE './menagerie-db/pet.txt' INTO TABLE pet;
-SOURCE ./menagerie-db/ins_puff_rec.sql
-SOURCE ./menagerie-db/cr_event_tbl.sql
-LOAD DATA LOCAL INFILE './menagerie-db/event.txt' INTO TABLE event;
-```
+DROP TABLE IF EXISTS event;
 
-This might work better?
-
-```bash
-
-mysql -u animal -p --host 127.0.0.1 --port 3306 menagerie < ./menagerie-db/cr_pet_tbl.sql
-mysql -u animal -p --host 127.0.0.1 --port 3306 menagerie < ./menagerie-db/load_pet_tbl.sql
-mysqlimport -u animal -p --host 127.0.0.1 --port 3306 --local menagerie ./menagerie-db/pet.txt
-
-mysql -u animal -p --host 127.0.0.1 --port 3306 menagerie < ./menagerie-db/ins_puff_rec.sql
-mysql -u animal -p --host 127.0.0.1 --port 3306 menagerie < ./menagerie-db/cr_event_tbl.sql
-mysqlimport -u animal -p --host 127.0.0.1 --port 3306 --local menagerie ./menagerie-db/event.txt
-```
+CREATE TABLE event
+(
+  name   VARCHAR(20),
+  date   DATE,
+  type   VARCHAR(15),
+  remark VARCHAR(255)
+);
 
 
-# Datastream
-Grant some permissions to the datastream user
-```sql
+DROP TABLE IF EXISTS pet;
 
+CREATE TABLE pet
+(
+  name    VARCHAR(20),
+  owner   VARCHAR(20),
+  species VARCHAR(20),
+  sex     CHAR(1),
+  birth   DATE,
+  death   DATE
+);
+
+
+
+INSERT INTO pet VALUES ('Bonnie','Travis','cat','f','2017-04-14',NULL);
+INSERT INTO pet VALUES ('Cyde','Travis','cat','m','2017-04-14',NULL);
+
+INSERT INTO pet VALUES ('Thelma','Travis','cat','f','2020-08-09',NULL);
+INSERT INTO pet VALUES ('Louise','Travis','cat','f','2020-08-09',NULL);
+
+
+
+INSERT INTO event VALUES ('Bonnie', '2021-08-02', 'feeding', 'Fed her treats');
+INSERT INTO event VALUES ('Clyde',  '2021-08-02', 'feeding', 'Fed him treats');
+INSERT INTO event VALUES ('Louise', '2021-08-03', 'belly scratches', 'Good puppy!');
+INSERT INTO event VALUES ('Thelma', '2021-08-04', 'belly scratches', 'Good puppy!');
+
+
+# Optional
+# Then create a new user for datastream (or use the animal user)
 CREATE USER 'datastream'@'%' IDENTIFIED BY '$OME_SWEET_word! here';
 GRANT REPLICATION SLAVE, SELECT, RELOAD, REPLICATION CLIENT, LOCK TABLES, EXECUTE ON *.* TO 'datastream'@'%';
 FLUSH PRIVILEGES;
+
 ```
 
-Get the IP address of the instance. 
-```bash
-gcloud sql instances describe $INSTANCE --format="value(ipAddresses[0].ipAddress)"
-```
 
-Get the name of the bucket
-```bash
-echo $TARGET_BKT
-```
+# Choose Your Own Adventure
+From here, you have a Cloud SQL instance with some data and a BigQuery dataset. Pick one (or all?!) of the options below to test out and learn the CDC tools. 
+
+
+# Datastream
 
 
 ## Create Stream
-After the DB is set up, we create the stream via the UI. Use Cloud Storage and **`json`** output. 
+After the DB is set up, we create the stream via the UI. [Link here](https://console.cloud.google.com/datastream/streams). 
+
+**Get Started**
+
+* Stream name
+* Region - Use us-central1, unless you changed the `region` value in the Terraform variables.
+* Source type - MySQL
+* Destination type - Cloud Storage
+* Prerequisites
+   * Note: The Terraform will already enable binary logging and we already created the datastream user (or will just use the **animal** user)
+
+**Define & test source**
+* Connection profile name
+* Connection details
+   * Hostname or IP - This command will spit out the public IP:
+```bash
+   gcloud sql instances describe $INSTANCE --format="value(ipAddresses[0].ipAddress)"
+```
+   * Username - Use the datastream user we created or the animal user
+   * Password - Use the corresponding password
+
+**Secure connection**
+I added the Terraform code to generate an SSL cert, but haven't tested this connection method yet. 
+
+**Define connectivity method**
+* Connectivity method - Choose IP allowlisting. The IPs have already been whitelisted by the Terraform code. 
+
+**Configure stream source**
+* Objects to include - Specific schemas and tables
+   * Select the **menagerie** database
+
+
+**Define destination**
+* Connection profile name
+* Bucket name - Use the bucket that was created by Terraform... or use your own. The name of the bucket is available in `$TARGET_BKT`
+
+
+**Configure destination**
+* Output format - Avro. Avro is a very compact file format and allows for fast reads into BigQuery.
 
 
 ## Add Dataflow Job
+
 Datastream only gets it halfway. We need to use a dataflow template to get the data from the Storage bucket into BigQuery. Synthenized from [here](https://cloud.google.com/dataflow/docs/guides/templates/provided-streaming#datastream-to-bigquery).
 
-The `events.schema.json` and `pets.schema.json` files contain the BQ table schemas. 
 
-
-First, create the notification on the bucket and grant the dataflow user access to the bucket, then kick off the job.
+The `$TARGET_BKT` was created with a pubsub notification that will fire whenever an object in the bucket changes. This is what the dataflow job is listening for
 ```bash
-gsutil notification create -t menagerie-changes -f json gs://$TARGET_BKT
-
+# Grab the project number
 export PRJ_NUM=$( gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
 
+# Add some permissions to the dataflow service account
 gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:service-$PRJ_NUM@dataflow-service-producer-prod.iam.gserviceaccount.com" --role='roles/storage.objectAdmin'
+
+# Also need compute admin for some reason
+gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:service-$PRJ_NUM@dataflow-service-producer-prod.iam.gserviceaccount.com" --role='roles/compute.admin'
+
+# And Service Account User
+gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:service-$PRJ_NUM@dataflow-service-producer-prod.iam.gserviceaccount.com" --role='roles/iam.serviceAccountUser'
+
 
 # Technically this might be more secure due to least privilege
 # gsutil iam ch serviceAccount:service-$PRJ_NUM@dataflow-service-producer-prod.iam.gserviceaccount.com:roles/storage.objectAdmin gs://$TARGET_BKT
 
-
+# As of now, this will fail after 
 gcloud beta dataflow flex-template run menagerie-changes-pipeline-events \
     --project=$PROJECT_ID \
     --region=$REGION \
@@ -157,19 +214,24 @@ Some example SQL cmds to generate some data. Probably could be improved to do so
 
 ```sql
 
-INSERT INTO pet VALUES ('Bonnie','Travis','cat','f','2017-04-14',NULL);
-INSERT INTO pet VALUES ('Cyde','Travis','cat','m','2017-04-14',NULL);
+INSERT INTO pet VALUES ('Alfred','Travis','bat','m','1971-04-14',NULL);
 
 
-INSERT INTO event VALUES ('Bowser', '2021-08-02', 'feeding', 'Fed him mario treats')
-INSERT INTO event VALUES ('Bowser', '2021-08-03', 'feeding', 'Fed him mario treats')
-INSERT INTO event VALUES ('Bowser', '2021-08-03', 'belly scratches', 'Such a good boi')
-INSERT INTO event VALUES ('Bowser', '2021-08-04', 'belly scratches', 'Such a good boi')
-INSERT INTO event VALUES ('Bowser', '2021-08-05', 'belly scratches', 'Such a good boi')
-INSERT INTO event VALUES ('Bowser', '2021-08-06', 'belly scratches', 'Such a good boi')
+INSERT INTO event VALUES ('Bonnie', '2021-08-10', 'feeding', 'Fed her treats');
+INSERT INTO event VALUES ('Clyde',  '2021-08-11', 'feeding', 'Fed him treats');
+INSERT INTO event VALUES ('Louise', '2021-08-09', 'belly scratches', 'Good puppy!');
 
 ```
 
+# Striim
+TODO: Add Striim
+
+# Stitch
+TODO: Add Stitch data
+
+# Fivetran
+
+TODO: Add Fivetran
 
 # Random Bits
 Random stuff that I thought might be useful... to someone some time.
